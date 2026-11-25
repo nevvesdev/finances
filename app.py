@@ -157,7 +157,16 @@ def parsear_mes(mes):
         return None
     return None
 
-def calcular_vencimento(mes, dia_vencimento):
+def parsear_meses_depois(valor):
+    texto = str(valor).strip() if valor is not None else ""
+    if not texto:
+        return 0
+    try:
+        return int(float(texto))
+    except ValueError:
+        return 0
+
+def calcular_vencimento(mes, dia_vencimento, meses_depois=0):
     referencia = parsear_mes(mes)
     if referencia is None:
         return None
@@ -168,8 +177,12 @@ def calcular_vencimento(mes, dia_vencimento):
     if dia < 1:
         return None
     ano, num_mes = referencia
-    ultimo_dia = calendar.monthrange(ano, num_mes)[1]
-    return date(ano, num_mes, min(dia, ultimo_dia))
+    deslocamento = parsear_meses_depois(meses_depois)
+    total_meses = (ano * 12 + (num_mes - 1)) + deslocamento
+    ano_destino, indice_mes = divmod(total_meses, 12)
+    mes_destino = indice_mes + 1
+    ultimo_dia = calendar.monthrange(ano_destino, mes_destino)[1]
+    return date(ano_destino, mes_destino, min(dia, ultimo_dia))
 
 def carregar_pagamentos():
     try:
@@ -188,8 +201,11 @@ def preparar_recorrentes(tabela, pagamentos, mes):
         return resultado
     if "dia_vencimento" not in resultado.columns:
         resultado["dia_vencimento"] = ""
-    resultado["vencimento_data"] = resultado["dia_vencimento"].apply(
-        lambda dia: calcular_vencimento(mes, dia)
+    if "meses_depois" not in resultado.columns:
+        resultado["meses_depois"] = 0
+    resultado["vencimento_data"] = resultado.apply(
+        lambda linha: calcular_vencimento(mes, linha["dia_vencimento"], linha["meses_depois"]),
+        axis=1,
     )
     mapa_pagamentos = {}
     if not pagamentos.empty and {"mes", "item", "pago"}.issubset(pagamentos.columns):
