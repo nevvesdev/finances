@@ -5,6 +5,28 @@ from datetime import date
 
 st.set_page_config(page_title="Finanças", layout="centered")
 
+st.markdown("""
+<style>
+.block-container {padding-top: 2rem; max-width: 1100px;}
+h1 {font-weight: 800; letter-spacing: -0.02em;}
+div[data-testid="stMetric"] {
+    background: linear-gradient(145deg, #181b22, #1f2330);
+    border: 1px solid #2a2f3c;
+    border-radius: 16px;
+    padding: 18px 20px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+}
+div[data-testid="stMetricValue"] {font-size: 1.9rem; font-weight: 700;}
+div[data-testid="stMetricLabel"] p {color: #9aa3b2; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.06em;}
+[data-testid="stSidebar"] {background: #12141a;}
+.stTabs [data-baseweb="tab-list"] {gap: 8px;}
+.stTabs [data-baseweb="tab"] {border-radius: 999px; padding: 6px 16px; background: #181b22;}
+.stTabs [aria-selected="true"] {background: #22c55e22; color: #22c55e !important;}
+div[data-testid="stDataFrame"] {border-radius: 14px; overflow: hidden; border: 1px solid #2a2f3c;}
+div[data-testid="stForm"] {background: #181b22; border: 1px solid #2a2f3c; border-radius: 16px; padding: 20px;}
+</style>
+""", unsafe_allow_html=True)
+
 @st.cache_resource
 def planilha():
     gc = gspread.service_account_from_dict(dict(st.secrets["gcp_service_account"]))
