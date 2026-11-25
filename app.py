@@ -1,5 +1,6 @@
 import calendar
-from datetime import date
+import html
+from datetime import date, timedelta
 
 import gspread
 import pandas as pd
@@ -26,6 +27,60 @@ div[data-testid="stMetricLabel"] p {color: #9aa3b2; font-size: 0.85rem; text-tra
 .stTabs [aria-selected="true"] {background: #22c55e22; color: #22c55e !important;}
 div[data-testid="stDataFrame"] {border-radius: 14px; overflow: hidden; border: 1px solid #2a2f3c;}
 div[data-testid="stForm"] {background: #181b22; border: 1px solid #2a2f3c; border-radius: 16px; padding: 20px;}
+.item-linha {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    background: #181b22;
+    border: 1px solid #2a2f3c;
+    border-radius: 12px;
+    padding: 10px 14px;
+    margin-bottom: 6px;
+}
+.item-vencido {
+    background: rgba(239, 68, 68, 0.14);
+    border-color: rgba(239, 68, 68, 0.6);
+}
+.item-proximo {
+    background: rgba(245, 158, 11, 0.14);
+    border-color: rgba(245, 158, 11, 0.6);
+}
+.item-pago {
+    opacity: 0.72;
+}
+.item-meta {
+    color: #9aa3b2;
+    font-size: 0.85rem;
+}
+.item-vencido .item-data {
+    color: #f87171;
+    font-weight: 600;
+}
+.item-proximo .item-data {
+    color: #fbbf24;
+    font-weight: 600;
+}
+.item-selo {
+    display: inline-block;
+    font-size: 0.72rem;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 999px;
+    margin-left: 8px;
+}
+.item-vencido .item-selo {
+    background: rgba(239, 68, 68, 0.25);
+    color: #fca5a5;
+}
+.item-proximo .item-selo {
+    background: rgba(245, 158, 11, 0.25);
+    color: #fcd34d;
+}
+.item-pago .item-selo {
+    background: rgba(34, 197, 94, 0.2);
+    color: #86efac;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -71,6 +126,12 @@ def parsear_booleano(valor):
 
 def preparar_lancamentos(tabela):
     resultado = tabela.copy()
+    if resultado.empty:
+        resultado["linha_planilha"] = pd.Series(dtype="int64")
+        resultado["vencimento_efetivo"] = pd.Series(dtype="object")
+        resultado["vencimento_data"] = pd.Series(dtype="object")
+        resultado["pago_status"] = pd.Series(dtype="bool")
+        return resultado
     resultado["linha_planilha"] = range(2, len(resultado) + 2)
     if "vencimento" not in resultado.columns:
         resultado["vencimento"] = ""
@@ -216,11 +277,65 @@ c5.metric("Recebido", brl(recebido))
 
 resumo, lancar = st.tabs(["Resumo", "Lançar"])
 
+def classe_vencimento(vencimento, pago, hoje):
+    if pago:
+        return "item-pago", "Pago"
+    if vencimento is None:
+        return "", ""
+    if vencimento < hoje:
+        return "item-vencido", "Vencido"
+    if vencimento <= hoje + timedelta(days=7):
+        return "item-proximo", "Vence em breve"
+    return "", ""
+
+def renderizar_itens(tabela, prefixo_chave, ao_alternar):
+    if tabela.empty:
+        st.caption("Nenhum item encontrado.")
+        return
+    hoje = date.today()
+    ordenada = tabela.sort_values(by="vencimento_data", na_position="last")
+    for idx, linha in ordenada.iterrows():
+        pago_atual = bool(linha["pago_status"])
+        venc = linha["vencimento_data"]
+        venc_texto = venc.strftime("%d/%m/%Y") if venc is not None else "Sem vencimento"
+        classe_extra, rotulo = classe_vencimento(venc, pago_atual, hoje)
+        descricao = html.escape(str(linha.get("descricao", "")))
+        tipo = html.escape(str(linha.get("tipo", "")))
+        valor = brl(float(linha.get("valor", 0)))
+        selo = f'<span class="item-selo">{rotulo}</span>' if rotulo else ""
+        col_check, col_cartao = st.columns([0.07, 0.93])
+        with col_check:
+            chave = f"{prefixo_chave}_{idx}_{pago_atual}"
+            marcado = st.checkbox("Pago", value=pago_atual, key=chave, label_visibility="collapsed")
+            if marcado != pago_atual and ao_alternar(linha, marcado):
+                st.rerun()
+        with col_cartao:
+            st.markdown(
+                f"""
+                <div class="item-linha {classe_extra}">
+                    <div>
+                        <strong>{descricao}</strong>{selo}<br>
+                        <span class="item-meta">{tipo} • Vencimento: <span class="item-data">{venc_texto}</span></span>
+                    </div>
+                    <div><strong>{valor}</strong></div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
 with resumo:
     st.subheader("Recorrentes (todo mês)")
-    st.dataframe(rec, hide_index=True, use_container_width=True)
+    renderizar_itens(
+        rec,
+        f"rec_{mes}",
+        lambda linha, marcado: atualizar_pago_recorrente(mes, linha.get("descricao", ""), marcado),
+    )
     st.subheader("Lançamentos do mês")
-    st.dataframe(lan_mes, hide_index=True, use_container_width=True)
+    renderizar_itens(
+        lan_mes,
+        f"lan_{mes}",
+        lambda linha, marcado: atualizar_pago_lancamento(int(linha["linha_planilha"]), marcado),
+    )
 
 with lancar:
     with st.form("novo", clear_on_submit=True):
