@@ -81,6 +81,10 @@ div[data-testid="stForm"] {background: #181b22; border: 1px solid #2a2f3c; borde
     background: rgba(34, 197, 94, 0.2);
     color: #86efac;
 }
+.item-receber .item-selo {
+    background: rgba(59, 130, 246, 0.2);
+    color: #93c5fd;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -293,7 +297,12 @@ c5.metric("Recebido", brl(recebido))
 
 resumo, lancar = st.tabs(["Resumo", "Lançar"])
 
-def classe_vencimento(vencimento, pago, hoje):
+def classe_vencimento(vencimento, pago, tipo, hoje):
+    tipo_limpo = str(tipo).strip().lower()
+    if tipo_limpo == "entrada":
+        if pago:
+            return "item-pago", "Recebido"
+        return "item-receber", "A receber"
     if pago:
         return "item-pago", "Pago"
     if vencimento is None:
@@ -314,9 +323,11 @@ def renderizar_itens(tabela, prefixo_chave, ao_alternar):
         pago_atual = bool(linha["pago_status"])
         venc = linha["vencimento_data"]
         venc_texto = venc.strftime("%d/%m/%Y") if venc is not None else "Sem vencimento"
-        classe_extra, rotulo = classe_vencimento(venc, pago_atual, hoje)
+        tipo_bruto = str(linha.get("tipo", ""))
+        classe_extra, rotulo = classe_vencimento(venc, pago_atual, tipo_bruto, hoje)
         descricao = html.escape(str(linha.get("descricao", "")))
-        tipo = html.escape(str(linha.get("tipo", "")))
+        tipo = html.escape(tipo_bruto)
+        rotulo_data = "Data prevista" if tipo_bruto.strip().lower() == "entrada" else "Vencimento"
         valor = brl(float(linha.get("valor", 0)))
         selo = f'<span class="item-selo">{rotulo}</span>' if rotulo else ""
         col_check, col_cartao = st.columns([0.07, 0.93])
@@ -331,7 +342,7 @@ def renderizar_itens(tabela, prefixo_chave, ao_alternar):
                 <div class="item-linha {classe_extra}">
                     <div>
                         <strong>{descricao}</strong>{selo}<br>
-                        <span class="item-meta">{tipo} • Vencimento: <span class="item-data">{venc_texto}</span></span>
+                        <span class="item-meta">{tipo} • {rotulo_data}: <span class="item-data">{venc_texto}</span></span>
                     </div>
                     <div><strong>{valor}</strong></div>
                 </div>
