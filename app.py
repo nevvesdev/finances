@@ -1,7 +1,9 @@
+import calendar
+from datetime import date
+
 import gspread
 import pandas as pd
 import streamlit as st
-from datetime import date
 
 st.set_page_config(page_title="Finanças", layout="centered")
 
@@ -81,9 +83,109 @@ def preparar_lancamentos(tabela):
     resultado["pago_status"] = resultado["pago"].apply(parsear_booleano)
     return resultado
 
+def parsear_mes(mes):
+    partes = str(mes).strip().split("-")
+    if len(partes) != 2:
+        return None
+    try:
+        ano = int(partes[0])
+        num_mes = int(partes[1])
+        if 1 <= num_mes <= 12:
+            return ano, num_mes
+    except ValueError:
+        return None
+    return None
+
+def calcular_vencimento(mes, dia_vencimento):
+    referencia = parsear_mes(mes)
+    if referencia is None:
+        return None
+    try:
+        dia = int(float(str(dia_vencimento).strip()))
+    except (TypeError, ValueError):
+        return None
+    if dia < 1:
+        return None
+    ano, num_mes = referencia
+    ultimo_dia = calendar.monthrange(ano, num_mes)[1]
+    return date(ano, num_mes, min(dia, ultimo_dia))
+
+def carregar_pagamentos():
+    try:
+        tabela = carregar("pagamentos")
+    except gspread.WorksheetNotFound:
+        return pd.DataFrame(columns=["mes", "item", "pago"])
+    if tabela.empty and len(tabela.columns) == 0:
+        return pd.DataFrame(columns=["mes", "item", "pago"])
+    return tabela
+
+def preparar_recorrentes(tabela, pagamentos, mes):
+    resultado = tabela.copy()
+    if resultado.empty:
+        resultado["vencimento_data"] = pd.Series(dtype="object")
+        resultado["pago_status"] = pd.Series(dtype="bool")
+        return resultado
+    if "dia_vencimento" not in resultado.columns:
+        resultado["dia_vencimento"] = ""
+    resultado["vencimento_data"] = resultado["dia_vencimento"].apply(
+        lambda dia: calcular_vencimento(mes, dia)
+    )
+    mapa_pagamentos = {}
+    if not pagamentos.empty and {"mes", "item", "pago"}.issubset(pagamentos.columns):
+        pagamentos_mes = pagamentos[pagamentos["mes"].astype(str).str.strip() == str(mes).strip()]
+        for _, linha in pagamentos_mes.iterrows():
+            chave = str(linha["item"]).strip()
+            mapa_pagamentos[chave] = parsear_booleano(linha["pago"])
+    descricoes = resultado["descricao"].astype(str).str.strip() if "descricao" in resultado.columns else ""
+    resultado["pago_status"] = descricoes.map(lambda item: mapa_pagamentos.get(item, False))
+    return resultado
+
+def atualizar_pago_lancamento(linha, pago):
+    aba = planilha().worksheet("lancamentos")
+    cabecalho = aba.row_values(1)
+    if "pago" not in cabecalho:
+        st.error("Coluna 'pago' não encontrada na aba 'lancamentos'.")
+        return False
+    aba.update_cell(linha, cabecalho.index("pago") + 1, bool(pago))
+    carregar.clear()
+    return True
+
+def atualizar_pago_recorrente(mes, item, pago):
+    aba = planilha().worksheet("pagamentos")
+    valores = aba.get_all_values()
+    item_limpo = str(item).strip()
+    mes_limpo = str(mes).strip()
+    if not valores:
+        aba.append_row(["mes", "item", "pago"], value_input_option="USER_ENTERED")
+        aba.append_row([mes_limpo, item_limpo, bool(pago)], value_input_option="USER_ENTERED")
+        carregar.clear()
+        return True
+    cabecalho = valores[0]
+    if not {"mes", "item", "pago"}.issubset(cabecalho):
+        st.error("Cabeçalho inválido na aba 'pagamentos'. Esperado: mes, item, pago.")
+        return False
+    idx_mes = cabecalho.index("mes")
+    idx_item = cabecalho.index("item")
+    idx_pago = cabecalho.index("pago")
+    for num_linha, linha in enumerate(valores[1:], start=2):
+        mes_linha = linha[idx_mes].strip() if len(linha) > idx_mes else ""
+        item_linha = linha[idx_item].strip() if len(linha) > idx_item else ""
+        if mes_linha == mes_limpo and item_linha == item_limpo:
+            aba.update_cell(num_linha, idx_pago + 1, bool(pago))
+            carregar.clear()
+            return True
+    nova_linha = [""] * len(cabecalho)
+    nova_linha[idx_mes] = mes_limpo
+    nova_linha[idx_item] = item_limpo
+    nova_linha[idx_pago] = bool(pago)
+    aba.append_row(nova_linha, value_input_option="USER_ENTERED")
+    carregar.clear()
+    return True
+
 mes = st.sidebar.text_input("Mês (AAAA-MM)", value=date.today().strftime("%Y-%m"))
 
-rec = carregar("recorrentes")
+pagamentos = carregar_pagamentos()
+rec = preparar_recorrentes(carregar("recorrentes"), pagamentos, mes)
 lan = preparar_lancamentos(carregar("lancamentos"))
 lan_mes = lan[lan["mes"] == mes] if not lan.empty and "mes" in lan.columns else lan
 
