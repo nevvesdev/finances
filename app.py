@@ -35,13 +35,15 @@ def planilha():
 @st.cache_data(ttl=30)
 def carregar(aba):
     valores = planilha().worksheet(aba).get_all_values()
-    df = pd.DataFrame(valores[1:], columns=valores[0])
-    if "valor" in df.columns:
-        df["valor"] = pd.to_numeric(
-            df["valor"].str.replace(".", "", regex=False).str.replace(",", ".", regex=False),
+    if not valores:
+        return pd.DataFrame()
+    tabela = pd.DataFrame(valores[1:], columns=valores[0])
+    if "valor" in tabela.columns:
+        tabela["valor"] = pd.to_numeric(
+            tabela["valor"].str.replace(".", "", regex=False).str.replace(",", ".", regex=False),
             errors="coerce",
         ).fillna(0)
-    return df
+    return tabela
 
 def adicionar(aba, linha):
     planilha().worksheet(aba).append_row(linha, value_input_option="USER_ENTERED")
@@ -50,11 +52,40 @@ def adicionar(aba, linha):
 def brl(valor):
     return f"R$ {valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
+def parsear_data(valor):
+    texto = str(valor).strip() if valor is not None else ""
+    if not texto:
+        return None
+    try:
+        return date.fromisoformat(texto[:10])
+    except ValueError:
+        convertido = pd.to_datetime(texto, dayfirst=True, errors="coerce")
+        if pd.isna(convertido):
+            return None
+        return convertido.date()
+
+def parsear_booleano(valor):
+    return str(valor).strip().upper() in {"TRUE", "VERDADEIRO", "1", "SIM"}
+
+def preparar_lancamentos(tabela):
+    resultado = tabela.copy()
+    resultado["linha_planilha"] = range(2, len(resultado) + 2)
+    if "vencimento" not in resultado.columns:
+        resultado["vencimento"] = ""
+    if "pago" not in resultado.columns:
+        resultado["pago"] = ""
+    venc_texto = resultado["vencimento"].astype(str).str.strip()
+    data_texto = resultado["data"].astype(str).str.strip() if "data" in resultado.columns else ""
+    resultado["vencimento_efetivo"] = venc_texto.where(venc_texto != "", data_texto)
+    resultado["vencimento_data"] = resultado["vencimento_efetivo"].apply(parsear_data)
+    resultado["pago_status"] = resultado["pago"].apply(parsear_booleano)
+    return resultado
+
 mes = st.sidebar.text_input("Mês (AAAA-MM)", value=date.today().strftime("%Y-%m"))
 
 rec = carregar("recorrentes")
-lan = carregar("lancamentos")
-lan_mes = lan[lan["mes"] == mes]
+lan = preparar_lancamentos(carregar("lancamentos"))
+lan_mes = lan[lan["mes"] == mes] if not lan.empty and "mes" in lan.columns else lan
 
 entradas = rec.loc[rec["tipo"] == "entrada", "valor"].sum() + lan_mes.loc[lan_mes["tipo"] == "entrada", "valor"].sum()
 despesas = rec.loc[rec["tipo"] == "despesa", "valor"].sum() + lan_mes.loc[lan_mes["tipo"] == "despesa", "valor"].sum()
@@ -80,7 +111,12 @@ with lancar:
         tipo = st.selectbox("Tipo", ["despesa", "entrada"])
         descricao = st.text_input("Descrição")
         valor = st.number_input("Valor (R$)", min_value=0.0, step=0.01)
+        vencimento = st.date_input("Vencimento", value=date.today())
+        pago = st.checkbox("Pago", value=False)
         enviar = st.form_submit_button("Salvar")
         if enviar and descricao:
-            adicionar("lancamentos", [mes, date.today().isoformat(), tipo, descricao, valor])
+            adicionar(
+                "lancamentos",
+                [mes, date.today().isoformat(), tipo, descricao, valor, vencimento.isoformat(), bool(pago)],
+            )
             st.rerun()
