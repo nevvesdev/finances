@@ -6,6 +6,8 @@ import gspread
 import pandas as pd
 import streamlit as st
 
+from graficos import renderizar_graficos
+
 st.set_page_config(page_title="Finanças", layout="centered")
 
 st.markdown("""
@@ -295,7 +297,7 @@ c4, c5 = st.columns(2)
 c4.metric("A pagar", brl(a_pagar))
 c5.metric("Recebido", brl(recebido))
 
-resumo, lancar = st.tabs(["Resumo", "Lançar"])
+resumo, lancar, aba_graficos = st.tabs(["Resumo", "Lançar", "Gráficos"])
 
 def classe_vencimento(vencimento, pago, tipo, hoje):
     tipo_limpo = str(tipo).strip().lower()
@@ -378,3 +380,15 @@ with lancar:
                 [mes, date.today().isoformat(), tipo, descricao, valor, vencimento.isoformat(), bool(pago)],
             )
             st.rerun()
+
+with aba_graficos:
+    renderizar_graficos(
+        rec=rec,
+        lan=lan,
+        lan_mes=lan_mes,
+        mes=mes,
+        brl=brl,
+        somar_valores=somar_valores,
+        parsear_mes=parsear_mes,
+        classe_vencimento=classe_vencimento,
+    )
