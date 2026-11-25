@@ -182,6 +182,14 @@ def atualizar_pago_recorrente(mes, item, pago):
     carregar.clear()
     return True
 
+def somar_valores(tabela, tipo, pago=None):
+    if tabela.empty or not {"tipo", "valor"}.issubset(tabela.columns):
+        return 0.0
+    filtro = tabela["tipo"] == tipo
+    if pago is not None and "pago_status" in tabela.columns:
+        filtro = filtro & (tabela["pago_status"] == pago)
+    return float(tabela.loc[filtro, "valor"].sum())
+
 mes = st.sidebar.text_input("Mês (AAAA-MM)", value=date.today().strftime("%Y-%m"))
 
 pagamentos = carregar_pagamentos()
@@ -189,9 +197,11 @@ rec = preparar_recorrentes(carregar("recorrentes"), pagamentos, mes)
 lan = preparar_lancamentos(carregar("lancamentos"))
 lan_mes = lan[lan["mes"] == mes] if not lan.empty and "mes" in lan.columns else lan
 
-entradas = rec.loc[rec["tipo"] == "entrada", "valor"].sum() + lan_mes.loc[lan_mes["tipo"] == "entrada", "valor"].sum()
-despesas = rec.loc[rec["tipo"] == "despesa", "valor"].sum() + lan_mes.loc[lan_mes["tipo"] == "despesa", "valor"].sum()
+entradas = somar_valores(rec, "entrada") + somar_valores(lan_mes, "entrada")
+despesas = somar_valores(rec, "despesa") + somar_valores(lan_mes, "despesa")
 saldo = entradas - despesas
+a_pagar = somar_valores(rec, "despesa", pago=False) + somar_valores(lan_mes, "despesa", pago=False)
+recebido = somar_valores(rec, "entrada", pago=True) + somar_valores(lan_mes, "entrada", pago=True)
 
 st.title(f"Finanças • {mes}")
 
@@ -199,6 +209,10 @@ c1, c2, c3 = st.columns(3)
 c1.metric("Entradas", brl(entradas))
 c2.metric("Despesas", brl(despesas))
 c3.metric("Saldo", brl(saldo))
+
+c4, c5 = st.columns(2)
+c4.metric("A pagar", brl(a_pagar))
+c5.metric("Recebido", brl(recebido))
 
 resumo, lancar = st.tabs(["Resumo", "Lançar"])
 
